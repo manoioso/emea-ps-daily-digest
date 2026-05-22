@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """
-EMEA Public Sector Daily Digest
+EMEA Public Sector Daily Digest v2 (EN)
 
-Fetches RSS feeds, optionally ranks with Claude, posts a digest to a Slack
-workflow webhook configured with a single variable named `text`.
+Selects 5 highly relevant news per day across 5 distinct categories
+and 5 distinct sources, posts a curated digest to a Slack workflow webhook.
 
 Environment variables:
-  SLACK_WEBHOOK_URL  required, Slack workflow trigger URL
-  ANTHROPIC_API_KEY  optional, enables Claude ranking and italian summaries
+  SLACK_WEBHOOK_URL  required (unless DRY_RUN), Slack workflow trigger URL
+  ANTHROPIC_API_KEY  required for curation
   CLAUDE_MODEL       optional, default claude-sonnet-4-6
   LOOKBACK_HOURS     optional, default 24
-  TOP_N              optional, default 12
-  DRY_RUN            optional, if set to 1 prints message instead of posting
+  DRY_RUN            optional, if "1" prints to stdout instead of posting
 """
 import json
 import os
@@ -23,16 +22,40 @@ import feedparser
 import requests
 
 LOOKBACK_HOURS = int(os.environ.get("LOOKBACK_HOURS", "24"))
-MAX_ITEMS_PER_FEED = 6
-TOP_N = int(os.environ.get("TOP_N", "12"))
+MAX_ITEMS_PER_FEED = 8
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
 SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 
-if not SLACK_WEBHOOK_URL and not DRY_RUN:
-    print("[error] SLACK_WEBHOOK_URL not set", file=sys.stderr)
-    sys.exit(1)
+
+CATEGORIES = {
+    "ai_data": {
+        "label": "AI & Data",
+        "icon": ":robot_face:",
+        "desc": "AI technology, data platforms, vector DB, RAG, LLM enterprise, ML, MongoDB and data-layer competitors",
+    },
+    "sovereignty": {
+        "label": "Digital Sovereignty",
+        "icon": ":shield:",
+        "desc": "Sovereign cloud, Germany Stack, EuroStack, Gaia-X, EU strategic autonomy, anti vendor lock-in, sovereign AI",
+    },
+    "public_sector_emea": {
+        "label": "Public Sector EMEA",
+        "icon": ":classical_building:",
+        "desc": "Public administration digital initiatives in Italy (PNRR, PSN, Sogei, Almaviva, Engineering), France (DINUM, France 2030), Germany (BMDS), UK (GDS), Spain, EU tenders, health-tech, e-government",
+    },
+    "regulation": {
+        "label": "Regulation",
+        "icon": ":balance_scale:",
+        "desc": "AI Act, Data Act, NIS2, DORA, EUCS, GDPR, DSA, DMA, compliance and enforcement, court decisions, practical impact on cloud and AI vendors",
+    },
+    "middle_east": {
+        "label": "Middle East PS",
+        "icon": ":globe_with_meridians:",
+        "desc": "Public sector digital initiatives in UAE, Saudi Arabia, Qatar, Turkey: Vision 2030, smart cities, sovereign cloud, sovereign AI, digital ministries, large GovTech tenders",
+    },
+}
 
 
 def parse_opml(path):
@@ -53,7 +76,7 @@ def fetch_feed(name, url):
     try:
         d = feedparser.parse(
             url,
-            request_headers={"User-Agent": "EMEA-PS-Digest/1.0"},
+            request_headers={"User-Agent": "EMEA-PS-Digest/2.0"},
         )
         return d.entries[:MAX_ITEMS_PER_FEED]
     except Exception as e:
@@ -87,107 +110,167 @@ def collect_recent(feeds):
     return items
 
 
-def rank_with_claude(items):
-    if not ANTHROPIC_API_KEY or not items:
-        return items[:TOP_N], False
+def curate_with_claude(items):
+    """
+    Ask Claude to pick the single best article per target category,
+    enforcing five distinct sources and five distinct categories.
+    """
+    if not ANTHROPIC_API_KEY:
+        print("[error] ANTHROPIC_API_KEY is required for curation", file=sys.stderr)
+        return []
+
+    if not items:
+        return []
 
     from anthropic import Anthropic
 
     client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
     items_for_prompt = [
-        {"i": i, "src": x["source"], "cat": x["category"],
-         "title": x["title"], "summary": x["summary"][:300]}
+        {
+            "i": i,
+            "source": x["source"],
+            "feed_category": x["category"],
+            "title": x["title"],
+            "summary": x["summary"][:400],
+        }
         for i, x in enumerate(items)
     ]
 
-    system = (
-        "Sei un analyst MongoDB EMEA Public Sector. Selezioni e sintetizzi "
-        "le notizie più rilevanti per un team enterprise sales che lavora "
-        "con la PA europea (Italia, Germania, Francia, UK, Spagna).\n"
-        "Sono rilevanti: sovranità digitale, regolamentazione EU (AI Act, "
-        "Data Act, NIS2, DORA, EUCS), cloud, AI, data platform, data center, "
-        "vendor public sector (AWS, GCP, Azure, Oracle, SAP, IBM, MongoDB), "
-        "iniziative nazionali (PNRR/PSN, Germany Stack, France 2030), "
-        "competizione, gare, M&A, security.\n"
-        "Non sono rilevanti: consumer, gadget, gossip, crypto speculativo."
+    cat_block = "\n".join(
+        f'- "{key}" — {meta["label"]}: {meta["desc"]}'
+        for key, meta in CATEGORIES.items()
     )
 
-    user = (
-        f"Hai {len(items)} articoli delle ultime ore. "
-        f"Seleziona i {TOP_N} più rilevanti per il public sector EMEA, "
-        f"ordinati per importanza decrescente.\n"
-        f"Per ciascuno produci un riassunto in italiano massimo 2 righe "
-        f"(circa 50 parole) che catturi il punto e perché interessa il sales.\n\n"
-        f"Rispondi SOLO con un JSON valido in questo formato esatto, niente "
-        f"altro testo prima o dopo:\n"
-        f'[{{"i": <indice>, "summary_it": "<riassunto in italiano>"}}, ...]\n\n'
-        f"Articoli:\n{json.dumps(items_for_prompt, ensure_ascii=False)}"
+    system = (
+        "You are a senior analyst for MongoDB EMEA Public Sector. "
+        "You select only high-signal news for an enterprise sales team working with "
+        "public administration, healthcare and government in Europe, Turkey and the Gulf. "
+        "Be extremely selective: better to leave a category empty than to include generic news."
     )
+
+    user = f"""You receive a pool of {len(items)} articles from the last few hours. Select at most 5, one for each target category below.
+
+Target categories (use the exact key in the JSON):
+{cat_block}
+
+Strict rules:
+- At most one article per target category
+- At most one article per source (5 different sources)
+- Only articles with high relevance for EMEA public sector sales. If a category has no sufficiently relevant article, omit that category
+- No consumer news, gadgets, sports, speculative crypto, gossip
+- Prefer: public tenders and procurement, ministry announcements, EU regulation with concrete impact, digital sovereignty moves, vendor moves in public sector, strategic AI initiatives
+
+For each selected article produce:
+- "i": index of the article in the pool (integer)
+- "category": exact target category key ("ai_data", "sovereignty", "public_sector_emea", "regulation", "middle_east")
+- "summary_en": one-line English summary, max 50 words, capturing the key point and why a public sector sales team should care
+
+Reply ONLY with valid JSON, no text before or after:
+{{"picks": [{{"i": 12, "category": "ai_data", "summary_en": "..."}}]}}
+
+Articles:
+{json.dumps(items_for_prompt, ensure_ascii=False)}
+"""
 
     try:
         msg = client.messages.create(
             model=CLAUDE_MODEL,
-            max_tokens=4000,
+            max_tokens=2000,
             system=system,
             messages=[{"role": "user", "content": user}],
         )
         raw = msg.content[0].text
     except Exception as e:
-        print(f"[warn] Claude call failed: {e}", file=sys.stderr)
-        return items[:TOP_N], False
+        print(f"[error] Claude call failed: {e}", file=sys.stderr)
+        return []
 
-    start = raw.find("[")
-    end = raw.rfind("]") + 1
+    start = raw.find("{")
+    end = raw.rfind("}") + 1
     if start < 0 or end <= 0:
-        print("[warn] no JSON in Claude response, falling back", file=sys.stderr)
-        return items[:TOP_N], False
+        print("[error] no JSON in Claude response", file=sys.stderr)
+        print(f"[debug] raw: {raw[:500]}", file=sys.stderr)
+        return []
 
     try:
-        picks = json.loads(raw[start:end])
+        data = json.loads(raw[start:end])
     except json.JSONDecodeError as e:
-        print(f"[warn] JSON parse error: {e}", file=sys.stderr)
-        return items[:TOP_N], False
+        print(f"[error] JSON parse error: {e}", file=sys.stderr)
+        print(f"[debug] raw: {raw[:500]}", file=sys.stderr)
+        return []
 
-    ranked = []
+    picks = data.get("picks", [])
+    seen_sources = set()
+    seen_categories = set()
+    canonical = []
     for p in picks:
         idx = p.get("i")
-        if isinstance(idx, int) and 0 <= idx < len(items):
-            it = dict(items[idx])
-            it["summary_it"] = p.get("summary_it", "")
-            ranked.append(it)
-    return ranked, True
+        cat = p.get("category")
+        if not isinstance(idx, int) or not 0 <= idx < len(items):
+            continue
+        if cat not in CATEGORIES:
+            continue
+        if cat in seen_categories:
+            continue
+        src = items[idx]["source"]
+        if src in seen_sources:
+            continue
+        seen_sources.add(src)
+        seen_categories.add(cat)
+        it = dict(items[idx])
+        it["target_category"] = cat
+        it["summary_en"] = p.get("summary_en", "").strip()
+        canonical.append(it)
+
+    order = list(CATEGORIES.keys())
+    canonical.sort(key=lambda x: order.index(x["target_category"]))
+    return canonical
 
 
-def build_message(items, ai_curated):
-    if not items:
-        return "Oggi nessuna notizia rilevante nei feed monitorati."
-
+def build_message(items):
     today = dt.datetime.now().strftime("%A %d %B %Y")
-    badge = "AI-curated" if ai_curated else "raw feed"
-    lines = [f":newspaper: *EMEA PS Daily Digest — {today}*  _{badge}_", ""]
+    if not items:
+        return f":newspaper: *EMEA PS Daily Digest — {today}*\n\n_No relevant news in the monitored feeds today._"
 
-    for i, x in enumerate(items, 1):
+    sep = "━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    lines = [
+        f":newspaper: *EMEA PS Daily Digest — {today}*",
+        f"_{len(items)} curated stories for the EMEA Public Sector team_",
+        "",
+    ]
+
+    for x in items:
+        cat_key = x["target_category"]
+        meta = CATEGORIES[cat_key]
         title = (x.get("title") or "")[:200]
-        link = x.get("link") or ""
+        summary = (x.get("summary_en") or "").strip()
         source = x.get("source") or ""
-        summary = x.get("summary_it") or ""
-        lines.append(f"*{i}.* <{link}|{title}>")
-        lines.append(f"    _{source}_")
+        link = x.get("link") or ""
+
+        lines.append(sep)
+        lines.append("")
+        lines.append(f"{meta['icon']} *{meta['label'].upper()}*  •  _{source}_")
+        lines.append("")
+        lines.append(f"*{title}*")
         if summary:
-            lines.append(f"    {summary}")
+            lines.append(summary)
+        lines.append("")
+        lines.append(link)
         lines.append("")
 
     text = "\n".join(lines)
-    if len(text) > 3500:
-        text = text[:3450] + "\n\n_(digest troncato per limite Slack)_"
+    if len(text) > 3800:
+        text = text[:3750] + "\n\n_(truncated due to Slack limit)_"
     return text
 
 
 def post_to_slack(text):
-    if DRY_RUN:
-        print("=== DRY RUN ===")
+    if DRY_RUN or not SLACK_WEBHOOK_URL:
+        print("=" * 60)
+        print("DRY RUN — message that would be posted to Slack:")
+        print("=" * 60)
         print(text)
+        print("=" * 60)
         return
     r = requests.post(SLACK_WEBHOOK_URL, json={"text": text}, timeout=30)
     if r.status_code >= 300:
@@ -198,12 +281,15 @@ def post_to_slack(text):
 
 def main():
     feeds = parse_opml("feeds.opml")
-    print(f"[info] {len(feeds)} feeds loaded")
+    print(f"[info] {len(feeds)} feeds in OPML")
+
     items = collect_recent(feeds)
     print(f"[info] {len(items)} items in last {LOOKBACK_HOURS}h")
-    ranked, ai_curated = rank_with_claude(items)
-    print(f"[info] {len(ranked)} items in digest, AI={ai_curated}")
-    text = build_message(ranked, ai_curated)
+
+    curated = curate_with_claude(items)
+    print(f"[info] {len(curated)} curated items")
+
+    text = build_message(curated)
     post_to_slack(text)
 
 

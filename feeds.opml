@@ -4,7 +4,7 @@
     <title>EMEA Public Sector Daily Digest</title>
   </head>
   <body>
-    <outline text="EU Policy">
+    <outline text="EU Policy and Regulation">
       <outline type="rss" text="Politico EU" xmlUrl="https://www.politico.eu/feed/"/>
       <outline type="rss" text="Euractiv" xmlUrl="https://www.euractiv.com/feed/"/>
     </outline>
@@ -25,9 +25,15 @@
       <outline type="rss" text="ComputerWeekly" xmlUrl="https://www.computerweekly.com/rss/All-Computer-Weekly-content.xml"/>
       <outline type="rss" text="The Register" xmlUrl="https://www.theregister.com/headlines.atom"/>
     </outline>
+    <outline text="Middle East and Turkey">
+      <outline type="rss" text="The National UAE" xmlUrl="https://www.thenationalnews.com/business/technology/rss/"/>
+      <outline type="rss" text="Daily Sabah Turkey" xmlUrl="https://www.dailysabah.com/rss/category/business-technology"/>
+      <outline type="rss" text="Arab News" xmlUrl="https://www.arabnews.com/rss.xml"/>
+    </outline>
     <outline text="Cloud and Vendor">
       <outline type="rss" text="AWS Public Sector Blog" xmlUrl="https://aws.amazon.com/blogs/publicsector/feed/"/>
       <outline type="rss" text="MongoDB Blog" xmlUrl="https://www.mongodb.com/blog/rss"/>
+      <outline type="rss" text="Anthropic" xmlUrl="https://www.anthropic.com/news/rss.xml"/>
     </outline>
     <outline text="Industry and Data Center">
       <outline type="rss" text="The New Stack" xmlUrl="https://thenewstack.io/feed/"/>
