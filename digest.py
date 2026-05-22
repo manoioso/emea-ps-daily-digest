@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-EMEA Public Sector Daily Digest v2 (EN)
+EMEA Public Sector Daily Digest v3 (Gemini)
 
 Selects 5 highly relevant news per day across 5 distinct categories
 and 5 distinct sources, posts a curated digest to a Slack workflow webhook.
 
 Environment variables:
   SLACK_WEBHOOK_URL  required (unless DRY_RUN), Slack workflow trigger URL
-  ANTHROPIC_API_KEY  required for curation
-  CLAUDE_MODEL       optional, default claude-sonnet-4-6
+  GEMINI_API_KEY     required for curation
+  GEMINI_MODEL       optional, default gemini-2.5-flash
   LOOKBACK_HOURS     optional, default 24
   DRY_RUN            optional, if "1" prints to stdout instead of posting
 """
@@ -23,9 +23,9 @@ import requests
 
 LOOKBACK_HOURS = int(os.environ.get("LOOKBACK_HOURS", "24"))
 MAX_ITEMS_PER_FEED = 8
-CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL")
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 
 
@@ -76,7 +76,7 @@ def fetch_feed(name, url):
     try:
         d = feedparser.parse(
             url,
-            request_headers={"User-Agent": "EMEA-PS-Digest/2.0"},
+            request_headers={"User-Agent": "EMEA-PS-Digest/3.0"},
         )
         return d.entries[:MAX_ITEMS_PER_FEED]
     except Exception as e:
@@ -110,21 +110,21 @@ def collect_recent(feeds):
     return items
 
 
-def curate_with_claude(items):
+def curate_with_gemini(items):
     """
-    Ask Claude to pick the single best article per target category,
+    Ask Gemini to pick the single best article per target category,
     enforcing five distinct sources and five distinct categories.
     """
-    if not ANTHROPIC_API_KEY:
-        print("[error] ANTHROPIC_API_KEY is required for curation", file=sys.stderr)
+    if not GEMINI_API_KEY:
+        print("[error] GEMINI_API_KEY is required for curation", file=sys.stderr)
         return []
 
     if not items:
         return []
 
-    from anthropic import Anthropic
+    import google.generativeai as genai
 
-    client = Anthropic(api_key=ANTHROPIC_API_KEY)
+    genai.configure(api_key=GEMINI_API_KEY)
 
     items_for_prompt = [
         {
@@ -142,14 +142,14 @@ def curate_with_claude(items):
         for key, meta in CATEGORIES.items()
     )
 
-    system = (
+    system_instruction = (
         "You are a senior analyst for MongoDB EMEA Public Sector. "
         "You select only high-signal news for an enterprise sales team working with "
         "public administration, healthcare and government in Europe, Turkey and the Gulf. "
         "Be extremely selective: better to leave a category empty than to include generic news."
     )
 
-    user = f"""You receive a pool of {len(items)} articles from the last few hours. Select at most 5, one for each target category below.
+    user_prompt = f"""You receive a pool of {len(items)} articles from the last few hours. Select at most 5, one for each target category below.
 
 Target categories (use the exact key in the JSON):
 {cat_block}
@@ -166,7 +166,7 @@ For each selected article produce:
 - "category": exact target category key ("ai_data", "sovereignty", "public_sector_emea", "regulation", "middle_east")
 - "summary_en": one-line English summary, max 50 words, capturing the key point and why a public sector sales team should care
 
-Reply ONLY with valid JSON, no text before or after:
+Reply ONLY with valid JSON in this exact schema:
 {{"picks": [{{"i": 12, "category": "ai_data", "summary_en": "..."}}]}}
 
 Articles:
@@ -174,26 +174,25 @@ Articles:
 """
 
     try:
-        msg = client.messages.create(
-            model=CLAUDE_MODEL,
-            max_tokens=2000,
-            system=system,
-            messages=[{"role": "user", "content": user}],
+        model = genai.GenerativeModel(
+            GEMINI_MODEL,
+            system_instruction=system_instruction,
         )
-        raw = msg.content[0].text
+        response = model.generate_content(
+            user_prompt,
+            generation_config={
+                "response_mime_type": "application/json",
+                "max_output_tokens": 2000,
+                "temperature": 0.3,
+            },
+        )
+        raw = response.text
     except Exception as e:
-        print(f"[error] Claude call failed: {e}", file=sys.stderr)
-        return []
-
-    start = raw.find("{")
-    end = raw.rfind("}") + 1
-    if start < 0 or end <= 0:
-        print("[error] no JSON in Claude response", file=sys.stderr)
-        print(f"[debug] raw: {raw[:500]}", file=sys.stderr)
+        print(f"[error] Gemini call failed: {e}", file=sys.stderr)
         return []
 
     try:
-        data = json.loads(raw[start:end])
+        data = json.loads(raw)
     except json.JSONDecodeError as e:
         print(f"[error] JSON parse error: {e}", file=sys.stderr)
         print(f"[debug] raw: {raw[:500]}", file=sys.stderr)
@@ -286,7 +285,7 @@ def main():
     items = collect_recent(feeds)
     print(f"[info] {len(items)} items in last {LOOKBACK_HOURS}h")
 
-    curated = curate_with_claude(items)
+    curated = curate_with_gemini(items)
     print(f"[info] {len(curated)} curated items")
 
     text = build_message(curated)
