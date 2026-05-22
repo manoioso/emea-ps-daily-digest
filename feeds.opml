@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head>
+    <title>EMEA Public Sector Daily Digest</title>
+  </head>
+  <body>
+    <outline text="EU Policy">
+      <outline type="rss" text="Politico EU" xmlUrl="https://www.politico.eu/feed/"/>
+      <outline type="rss" text="Euractiv" xmlUrl="https://www.euractiv.com/feed/"/>
+    </outline>
+    <outline text="Italy">
+      <outline type="rss" text="Agenda Digitale" xmlUrl="https://www.agendadigitale.eu/feed/"/>
+      <outline type="rss" text="ForumPA" xmlUrl="https://www.forumpa.it/feed/"/>
+      <outline type="rss" text="StartMag" xmlUrl="https://www.startmag.it/feed/"/>
+      <outline type="rss" text="Corriere Comunicazioni" xmlUrl="https://www.corrierecomunicazioni.it/feed/"/>
+      <outline type="rss" text="Key4biz" xmlUrl="https://www.key4biz.it/feed/"/>
+    </outline>
+    <outline text="Germany">
+      <outline type="rss" text="Heise" xmlUrl="https://www.heise.de/rss/heise-atom.xml"/>
+    </outline>
+    <outline text="France">
+      <outline type="rss" text="Usine Digitale" xmlUrl="https://www.usine-digitale.fr/rss"/>
+    </outline>
+    <outline text="UK">
+      <outline type="rss" text="ComputerWeekly" xmlUrl="https://www.computerweekly.com/rss/All-Computer-Weekly-content.xml"/>
+      <outline type="rss" text="The Register" xmlUrl="https://www.theregister.com/headlines.atom"/>
+    </outline>
+    <outline text="Cloud and Vendor">
+      <outline type="rss" text="AWS Public Sector Blog" xmlUrl="https://aws.amazon.com/blogs/publicsector/feed/"/>
+      <outline type="rss" text="MongoDB Blog" xmlUrl="https://www.mongodb.com/blog/rss"/>
+    </outline>
+    <outline text="Industry and Data Center">
+      <outline type="rss" text="The New Stack" xmlUrl="https://thenewstack.io/feed/"/>
+      <outline type="rss" text="Data Center Dynamics" xmlUrl="https://www.datacenterdynamics.com/en/rss/"/>
+    </outline>
+    <outline text="Cybersecurity">
+      <outline type="rss" text="Bleeping Computer" xmlUrl="https://www.bleepingcomputer.com/feed/"/>
+    </outline>
+  </body>
+</opml>
