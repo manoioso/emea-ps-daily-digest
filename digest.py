@@ -23,7 +23,7 @@ import requests
 
 LOOKBACK_HOURS = int(os.environ.get("LOOKBACK_HOURS", "24"))
 MAX_ITEMS_PER_FEED = 8
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
 SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
