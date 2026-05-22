@@ -4,6 +4,15 @@ on:
   schedule:
     - cron: '30 6 * * 1-5'
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (print to logs, do not post to Slack)'
+        type: boolean
+        default: false
+      lookback_hours:
+        description: 'Lookback window in hours'
+        type: string
+        default: '24'
 
 jobs:
   digest:
@@ -24,5 +33,7 @@ jobs:
       - name: Run digest
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+          LOOKBACK_HOURS: ${{ inputs.lookback_hours || '24' }}
         run: python digest.py
